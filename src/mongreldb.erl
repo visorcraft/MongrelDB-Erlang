@@ -690,8 +690,15 @@ request(#{base_url := BaseURL, timeout := Timeout,
         {error, Reason} ->
             throw({mongreldb_error, mongreldb_query_error,
                    iolist_to_binary(["request ", Path, " failed: ",
-                                     atom_to_list(Reason)])})
+                                     format_httpc_reason(Reason)])})
     end.
+
+%% Render an httpc error reason into a flat string. The reason is usually an
+%% atom (econnrefused, timeout, ...) but can be a structured tuple such as
+%% {failed_connect, ...}; format generically so the error message never
+%% crashes on a non-atom reason.
+format_httpc_reason(Reason) when is_atom(Reason) -> atom_to_list(Reason);
+format_httpc_reason(Reason) -> io_lib:format("~p", [Reason]).
 
 %% Map HTTP status + body to a typed exception.
 -spec throw_for_status(integer(), response(), client()) -> no_return().

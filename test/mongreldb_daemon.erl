@@ -19,6 +19,10 @@
 %% @private Boot the daemon once for the whole suite.
 -spec boot() -> {ok, mongreldb:client()} | {skip, string()}.
 boot() ->
+    %% rebar3 eunit does NOT auto-start the applications listed in .app.src,
+    %% so ensure the ones the client + this harness need are running before
+    %% any HTTP or crypto call. idempotent if already started.
+    ok = ensure_started([crypto, inets]),
     Existing = os:getenv("MONGRELDB_URL", ""),
     case Existing of
         "" ->
@@ -148,11 +152,26 @@ free_port() ->
     Port.
 
 rand_hex() ->
-    <<<<(integer_to_binary(B, 16))/binary>> || <<B:8>> <= crypto:strong_rand_bytes(6)>>.
+    %% A flat, all-uppercase hex string (list) safe to concatenate with other
+    %% strings via ++. rand_hex/0 feeds DataDir/LogPath/PidLog construction.
+    lists:flatten([string:uppercase(integer_to_list(B, 16))
+                   || <<B:8>> <= crypto:strong_rand_bytes(6)]).
 
 env_binary(Name) ->
     case os:getenv(Name) of
         false -> undefined;
         "" -> undefined;
         V -> list_to_binary(V)
+    end.
+
+%% Ensure each OTP application in Apps (and its dependencies) is running.
+%% rebar3 eunit does not start the apps listed in .app.src, so the live
+%% harness must start inets (httpc) and crypto (strong_rand_bytes) itself.
+ensure_started([]) ->
+    ok;
+ensure_started([App | Rest]) ->
+    case application:ensure_all_started(App) of
+        {ok, _} -> ensure_started(Rest);
+        {error, {already_started, App}} -> ensure_started(Rest);
+        {error, {badrpc, _}} -> ensure_started(Rest)
     end.
