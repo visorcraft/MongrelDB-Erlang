@@ -1,0 +1,18 @@
+%% Application resource file for the MongrelDB Erlang client.
+{application, mongreldb,
+ [{description, "Pure Erlang HTTP client for MongrelDB - typed CRUD, fluent query builder, idempotent batch transactions, SQL, and schema introspection."},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {mod, {mongreldb_app, []}},
+  {applications,
+   [kernel,
+    stdlib,
+    inets,
+    ssl,
+    crypto
+   ]},
+  {env, []},
+  {modules, []},
+  {links, [{<<"GitHub">>, <<"https://github.com/visorcraft/MongrelDB-Erlang">>}]},
+  {licenses, [<<"MIT">>, <<"Apache-2.0">>]}
+ ]}.

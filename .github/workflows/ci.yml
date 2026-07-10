@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & offline tests (OTP ${{ matrix.otp }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # OTP 26 is the supported minimum (introduces the `json` module used
+        # for JSON encode/decode). OTP 27 is the current stable.
+        otp: ['26', '27']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Erlang/OTP ${{ matrix.otp }}
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ matrix.otp }}
+          # rebar3 is fetched and pinned per-OTP by setup-beam.
+          rebar3-version: '3.24.0'
+
+      - name: Restore rebar3 cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            _build
+            rebar3.crashdump
+          key: ${{ runner.os }}-otp-${{ matrix.otp }}-${{ hashFiles('rebar.config', 'src/mongreldb.app.src') }}
+          restore-keys: |
+            ${{ runner.os }}-otp-${{ matrix.otp }}-
+
+      - name: Compile (warnings-as-errors)
+        run: rebar3 compile
+
+      - name: Dialyzer (type checks)
+        run: rebar3 dialyzer
+
+      # The offline unit tests (condition-alias translation, cells flattening,
+      # URL escaping with CRLF resistance, query payload shape, base-URL
+      # normalization, error-envelope accessors) run without a daemon. Live
+      # tests self-skip when no server binary is found.
+      - name: Run tests
+        run: rebar3 eunit
+
+  live:
+    # Boots a real mongreldb-server and runs the live round-trip suite.
+    name: Live integration (against mongreldb-server)
+    runs-on: ubuntu-latest
+    env:
+      SERVER_VERSION: '0.46.2'
+      # The test harness boots the daemon itself from ./bin/mongreldb-server.
+      # MONGRELDB_SERVER points it at the downloaded binary.
+      MONGRELDB_SERVER: ./bin/mongreldb-server
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Erlang/OTP
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27'
+          rebar3-version: '3.24.0'
+
+      - name: Restore rebar3 cache
+        uses: actions/cache@v6
+        with:
+          path: _build
+          key: ${{ runner.os }}-otp-live-${{ hashFiles('rebar.config', 'src/mongreldb.app.src') }}
+          restore-keys: |
+            ${{ runner.os }}-otp-live-
+
+      - name: Compile
+        run: rebar3 compile
+
+      - name: Cache mongreldb-server binary
+        id: server-cache
+        uses: actions/cache@v6
+        with:
+          path: bin/mongreldb-server
+          key: mongreldb-server-linux-x64-${{ env.SERVER_VERSION }}
+
+      - name: Download mongreldb-server
+        if: steps.server-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p bin
+          curl -fsSL -o bin/mongreldb-server \
+            "https://github.com/visorcraft/MongrelDB/releases/download/v${SERVER_VERSION}/mongreldb-server-linux-x64"
+          chmod +x bin/mongreldb-server
+          ./bin/mongreldb-server --help | head -n 1
+
+      - name: Run live tests
+        run: rebar3 eunit
+
+      - name: Start mongreldb-server for examples
+        run: |
+          rm -rf /tmp/mongreldb-data-ex
+          ./bin/mongreldb-server /tmp/mongreldb-data-ex --port 8453 > /tmp/mongreldb-server-ex.log 2>&1 &
+          echo $! > /tmp/mongreldb-server-ex.pid
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8453/health >/dev/null 2>&1; then
+              echo "mongreldb-server is healthy for examples"
+              break
+            fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8453/health >/dev/null || (cat /tmp/mongreldb-server-ex.log && exit 1)
+
+      - name: Run examples
+        run: |
+          for ex in examples/*.erl; do
+            echo "=== Running $ex ==="
+            rebar3 as examples escriptize || true
+            escript "$ex" || { echo "FAILED: $ex"; exit 1; }
+          done
+
+      - name: Stop mongreldb-server for examples
+        if: always()
+        run: |
+          if [ -f /tmp/mongreldb-server-ex.pid ]; then
+            kill "$(cat /tmp/mongreldb-server-ex.pid)" 2>/dev/null || true
+          fi
+
+      - name: Dump server log on failure
+        if: failure()
+        run: |
+          log="$(ls -t /tmp/mongreldb-erlang-server-*.log 2>/dev/null | head -n 1)"
+          if [ -n "$log" ]; then cat "$log"; fi

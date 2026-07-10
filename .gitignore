@@ -1,0 +1,33 @@
+# Agent / assistant instruction files are workspace-local, never published
+AGENTS.md
+CLAUDE.md
+.cursorrules
+.zcode/
+
+# Logs
+*.log
+rebar3.crashdump
+
+# OS / editor state
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Erlang / rebar3
+_build/
+rebar3.crashdump
+.eunit/
+cover/
+deps/
+doc/
+erl_crash.dump
+
+# Hex publishing artifacts
+*.tar.gz
+
+# Prebuilt mongreldb-server binary (downloaded by CI / local testing, not source)
+bin/
