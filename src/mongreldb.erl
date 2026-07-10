@@ -664,14 +664,19 @@ request(#{base_url := BaseURL, timeout := Timeout,
                 {autoredirect, true}],
    Opts = [{ssl, []}],
     RawMethod = method_atom(Method),
-    %% httpc:request/4 request tuple: {Url, Headers, ContentType, Body}.
-    %% ContentType is a string; pass "application/json" always so the
-    %% server's JSON extractors accept the body.
-    Result = httpc:request(RawMethod,
-                           {binary_to_list(Url),
-                            headers_to_list(Headers1),
-                            "application/json",
-                            case Body of undefined -> <<>>; _ -> EncodedBody end},
+    %% httpc:request/4 request tuple differs by method:
+    %%   - GET/DELETE (no body): {Url, Headers} (2-tuple)
+    %%   - POST/PUT (with body): {Url, Headers, ContentType, Body} (4-tuple)
+    %% httpc rejects an empty body in the 4-tuple form, so the 2-tuple is
+    %% used whenever Body is undefined.
+    RequestTuple = case Body of
+        undefined ->
+            {binary_to_list(Url), headers_to_list(Headers1)};
+        _ ->
+            {binary_to_list(Url), headers_to_list(Headers1),
+             "application/json", EncodedBody}
+    end,
+    Result = httpc:request(RawMethod, RequestTuple,
                            HttpOpts, Opts ++ [{body_format, binary}]),
     case Result of
         {ok, {{_, Status, _}, RespHeaders, RespBody}} when Status >= 200, Status < 300 ->

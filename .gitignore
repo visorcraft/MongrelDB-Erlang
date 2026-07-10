@@ -25,6 +25,7 @@ cover/
 deps/
 doc/
 erl_crash.dump
+*.beam
 
 # Hex publishing artifacts
 *.tar.gz
