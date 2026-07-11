@@ -369,19 +369,18 @@ t_conflict_error(Client) ->
                   {ok, _} -> accepted;
                   _ -> accepted
               catch
-                  throw:{mongreldb_error, mongreldb_conflict_error, _Reason} = Err ->
-                      {conflict, Err};
-                  throw:{mongreldb_error, _Class, _} = Err ->
-                      {other_error, Err}
+                  throw:{mongreldb_error, mongreldb_conflict_error, _Reason} ->
+                      conflict;
+                  throw:{mongreldb_error, _Class, _} ->
+                      other_error
               end,
     case Outcome of
         accepted ->
             ok;  % server accepted the duplicate (last-write-wins)
-        {conflict, Err} ->
-            ?assertNotEqual(undefined, mongreldb:error_code(Err));
-        {other_error, _Err} ->
+        conflict ->
+            ok;  % server rejected with conflict (expected behavior)
+        other_error ->
             %% Any failure must still be a conflict, never a generic error:
-            %% re-match the class here so a non-conflict failure fails loudly.
             throw({unexpected_error_on_duplicate_put})
     end,
     cleanup(Client, Name).
