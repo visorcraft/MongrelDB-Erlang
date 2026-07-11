@@ -23,6 +23,9 @@
 |---|---|---|
 | Erlang client | `mongreldb` | `rebar3` dep, Hex |
 
+History retention: `history_retention/1` and
+`set_history_retention_epochs/2`.
+
 ## Requirements
 
 - **Erlang/OTP 26 or newer** (the `json` module landed in OTP 26)

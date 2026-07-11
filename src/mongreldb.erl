@@ -42,7 +42,8 @@
 
 %% ── Health & tables ──────────────────────────────────────────────────────────
 -export([health/1, table_names/1, create_table/3, create_table/4,
-         drop_table/2, count/2]).
+         drop_table/2, count/2, history_retention/1,
+         set_history_retention_epochs/2]).
 
 %% ── CRUD (via the Kit typed transaction endpoint) ────────────────────────────
 -export([put/3, put/4, upsert/3, upsert/4, delete/3, delete_by_pk/3]).
@@ -67,6 +68,7 @@
 
 %% ── Low-level HTTP (for endpoints not yet wrapped) ───────────────────────────
 -export([get/2, post/2, post/3, http_delete/2, response_json/1,
+-export([get/2, post/2, post/3, put/3, http_delete/2, response_json/1,
          flatten_cells/1, normalize_condition/2, url_path_escape/1]).
 
 %% ── Exception accessors ──────────────────────────────────────────────────────
@@ -192,6 +194,15 @@ table_names(Client) ->
         {ok, List} when is_list(List) -> {ok, List};
         _ -> {ok, []}
     end.
+
+history_retention(Client) ->
+    {ok, Resp} = get(Client, <<"/history/retention">>),
+    response_json(Resp).
+
+set_history_retention_epochs(Client, Epochs) when is_integer(Epochs), Epochs >= 0 ->
+    {ok, Resp} = put(Client, <<"/history/retention">>,
+                     #{<<"history_retention_epochs">> => Epochs}),
+    response_json(Resp).
 
 %% @doc Create a table with typed columns. Returns the assigned table id.
 -spec create_table(client(), Name, Columns) -> {ok, integer()} when
@@ -563,6 +574,9 @@ post(Client, Path) ->
 -spec post(client(), binary() | string(), term()) -> {ok, response()}.
 post(Client, Path, Body) ->
     request(Client, post, Path, Body).
+
+put(Client, Path, Body) ->
+    request(Client, put, Path, Body).
 
 %% @doc Perform a DELETE request, mapping HTTP errors to typed exceptions.
 %% (Named `http_delete' to avoid clashing with the typed CRUD `delete/3'.)

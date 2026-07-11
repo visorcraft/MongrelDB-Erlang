@@ -102,6 +102,12 @@ create_table_wire_shape_test() ->
                  maps:get(<<"name">>, hd(maps:get(<<"checks">>,
                      maps:get(<<"constraints">>, Decoded))))).
 
+static_default_matrix_test() ->
+    lists:foreach(fun(Value) ->
+        Wire = json:encode(#{<<"default_value">> => Value}),
+        ?assertEqual(Value, maps:get(<<"default_value">>, json:decode(Wire)))
+    end, [<<"text">>, 3, true, null, <<"now">>]).
+
 query_truncated_defaults_to_false_test() ->
     {ok, C} = mongreldb:connect(#{url => <<"http://127.0.0.1:1">>}),
     Q = mongreldb:query(C, <<"orders">>),
