@@ -30,32 +30,54 @@ conformance_test_() ->
      fun start_shared/0,
      fun stop_shared/1,
      fun(ClientState) ->
-         {inparallel, false,
-          [
-           fun() -> t_health(ClientState) end,
-           fun() -> t_connect_defaults(ClientState) end,
-           fun() -> t_create_table_and_count(ClientState) end,
-           fun() -> t_put_and_count_round_trip(ClientState) end,
-           fun() -> t_upsert_inserts_then_updates(ClientState) end,
-           fun() -> t_delete_by_pk_removes_row(ClientState) end,
-           fun() -> t_delete_by_row_id(ClientState) end,
-           fun() -> t_query_by_primary_key(ClientState) end,
-           fun() -> t_query_range_with_friendly_aliases(ClientState) end,
-           fun() -> t_query_projection_and_limit(ClientState) end,
-           fun() -> t_transaction_put_commit(ClientState) end,
-           fun() -> t_transaction_idempotency_key(ClientState) end,
-           fun() -> t_transaction_rollback(ClientState) end,
-           fun() -> t_transaction_double_commit(ClientState) end,
-           fun() -> t_table_names(ClientState) end,
-           fun() -> t_drop_table(ClientState) end,
-           fun() -> t_sql_insert_and_select(ClientState) end,
-           fun() -> t_schema(ClientState) end,
-           fun() -> t_schema_for(ClientState) end,
-           fun() -> t_compact_all(ClientState) end,
-           fun() -> t_compact_single(ClientState) end,
-           fun() -> t_not_found_error(ClientState) end,
-           fun() -> t_conflict_error(ClientState) end
-          ]}
+         case ClientState of
+             {skip, Reason} ->
+                 %% No daemon available (CI offline job, or no server binary
+                 %% on PATH). Return an empty test set rather than emitting
+                 %% tests that would each throw {skip, Reason}: this eunit
+                 %% version records a thrown {skip,...} as a test failure and
+                 %% treats {skip,...} / {inparallel, false, [...]} as bad test
+                 %% descriptors (cancelling the suite). An empty list is a
+                 %% valid descriptor, so the run stays green (0 failed) and
+                 %% logs the skip reason for visibility.
+                 io:format("mongreldb: skipping live tests: ~s~n", [Reason]),
+                 [];
+             _ when ClientState =:= skip_no_daemon ->
+                 io:format("mongreldb: skipping live tests: no mongreldb-server available~n", []),
+                 [];
+             _ ->
+                 %% Run sequentially: these tests share one daemon and rely on
+                 %% per-table unique names, so they must not execute
+                 %% concurrently. (A plain list is a valid eunit test set; the
+                 %% previous `{inparallel, false, [...]}` was NOT -- `false`
+                 %% is not a valid parallelism count, which made eunit report
+                 %% "bad test descriptor" and cancel the suite.)
+                 [
+                   fun() -> t_health(ClientState) end,
+                   fun() -> t_connect_defaults(ClientState) end,
+                   fun() -> t_create_table_and_count(ClientState) end,
+                   fun() -> t_put_and_count_round_trip(ClientState) end,
+                   fun() -> t_upsert_inserts_then_updates(ClientState) end,
+                   fun() -> t_delete_by_pk_removes_row(ClientState) end,
+                   fun() -> t_delete_by_row_id(ClientState) end,
+                   fun() -> t_query_by_primary_key(ClientState) end,
+                   fun() -> t_query_range_with_friendly_aliases(ClientState) end,
+                   fun() -> t_query_projection_and_limit(ClientState) end,
+                   fun() -> t_transaction_put_commit(ClientState) end,
+                   fun() -> t_transaction_idempotency_key(ClientState) end,
+                   fun() -> t_transaction_rollback(ClientState) end,
+                   fun() -> t_transaction_double_commit(ClientState) end,
+                   fun() -> t_table_names(ClientState) end,
+                   fun() -> t_drop_table(ClientState) end,
+                   fun() -> t_sql_insert_and_select(ClientState) end,
+                   fun() -> t_schema(ClientState) end,
+                   fun() -> t_schema_for(ClientState) end,
+                   fun() -> t_compact_all(ClientState) end,
+                   fun() -> t_compact_single(ClientState) end,
+                   fun() -> t_not_found_error(ClientState) end,
+                   fun() -> t_conflict_error(ClientState) end
+                 ]
+         end
      end}.
 
 %% ── Daemon lifecycle ──────────────────────────────────────────────────────────

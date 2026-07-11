@@ -119,7 +119,19 @@ maybe_local_binary() ->
     Local = filename:absname("bin/mongreldb-server"),
     case is_regular_file(Local) of
         true -> Local;
-        false -> os:find_executable("mongreldb-server")
+        false ->
+            %% os:find_executable/1 returns the atom `false` (not `undefined`)
+            %% when the program is not on PATH. boot_local/0 matches on
+            %% `undefined` to decide "no binary -- skip", so normalize the
+            %% not-found result here. Without this, a missing binary made the
+            %% harness spawn `os:cmd("false " ++ Args ++ "...")`, poll the
+            %% health endpoint for ~20s, and report a misleading
+            %% "server did not become healthy" skip instead of the intended
+            %% "no mongreldb-server binary".
+            case os:find_executable("mongreldb-server") of
+                false -> undefined;
+                Path -> Path
+            end
     end.
 
 %% file:read_file_info returns {ok, #file_info{type = regular}} (a record,
