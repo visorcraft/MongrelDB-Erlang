@@ -78,6 +78,27 @@ build_omits_unset_fields_test() ->
     Payload = mongreldb:query_build(Q),
     ?assertEqual(#{<<"table">> => <<"orders">>}, Payload).
 
+create_table_wire_shape_test() ->
+    Columns = [#{<<"id">> => 1, <<"name">> => <<"status">>,
+                 <<"ty">> => <<"enum">>,
+                 <<"enum_variants">> => [<<"draft">>, <<"active">>],
+                 <<"default_value">> => <<"draft">>}],
+    Constraints = #{<<"checks">> =>
+        [#{<<"id">> => 1, <<"name">> => <<"known_status">>,
+           <<"expr">> => #{<<"Eq">> =>
+               [#{<<"Col">> => 1}, #{<<"Lit">> => #{<<"Bytes">> => <<"draft">>}}]}}]},
+    Wire = iolist_to_binary(json:encode(#{<<"name">> => <<"articles">>,
+                                          <<"columns">> => Columns,
+                                          <<"constraints">> => Constraints})),
+    Decoded = json:decode(Wire),
+    ?assertEqual([<<"draft">>, <<"active">>],
+                 maps:get(<<"enum_variants">>, hd(maps:get(<<"columns">>, Decoded)))),
+    ?assertEqual(<<"draft">>,
+                 maps:get(<<"default_value">>, hd(maps:get(<<"columns">>, Decoded)))),
+    ?assertEqual(<<"known_status">>,
+                 maps:get(<<"name">>, hd(maps:get(<<"checks">>,
+                     maps:get(<<"constraints">>, Decoded))))).
+
 query_truncated_defaults_to_false_test() ->
     {ok, C} = mongreldb:connect(#{url => <<"http://127.0.0.1:1">>}),
     Q = mongreldb:query(C, <<"orders">>),

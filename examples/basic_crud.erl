@@ -87,7 +87,11 @@ create_table(Db, Table) ->
           <<"default_value">> => 0,
           <<"primary_key">> => false, <<"nullable">> => false}
     ],
-    {ok, Tid} = mongreldb:create_table(Db, Table, Columns),
+    Constraints = #{<<"checks">> =>
+        [#{<<"id">> => 1, <<"name">> => <<"score_nonneg">>,
+           <<"expr">> => #{<<"Ge">> =>
+               [#{<<"Col">> => 3}, #{<<"Lit">> => #{<<"Float64">> => 0.0}}]}}]},
+    {ok, Tid} = mongreldb:create_table(Db, Table, Columns, Constraints),
     Tid.
 
 ts() -> integer_to_binary(erlang:system_time(second)).
