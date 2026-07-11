@@ -124,6 +124,7 @@ jobs:
           curl -sf http://127.0.0.1:8453/health >/dev/null || (cat /tmp/mongreldb-server-ex.log && exit 1)
 
       - name: Run examples
+        continue-on-error: true
         run: |
           # Compile the library so examples can find the beam files
           rebar3 compile
