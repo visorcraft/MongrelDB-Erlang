@@ -18,9 +18,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # OTP 26 is the supported minimum (introduces the `json` module used
-        # for JSON encode/decode). OTP 27 is the current stable.
-        otp: ['26', '27']
+        # OTP 27 is the supported minimum: it introduces the stdlib `json`
+        # module used for JSON encode/decode. Older OTP releases lack `json`
+        # and fail with `{error, undef, json, ...}`.
+        otp: ['27']
     steps:
       - name: Checkout
         uses: actions/checkout@v5
