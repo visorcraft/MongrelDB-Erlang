@@ -104,7 +104,7 @@ create_table_wire_shape_test() ->
 
 static_default_matrix_test() ->
     lists:foreach(fun(Value) ->
-        Wire = json:encode(#{<<"default_value">> => Value}),
+        Wire = iolist_to_binary(json:encode(#{<<"default_value">> => Value})),
         ?assertEqual(Value, maps:get(<<"default_value">>, json:decode(Wire)))
     end, [<<"text">>, 3, true, null, <<"now">>]).
 

@@ -725,12 +725,15 @@ throw_for_status(Status, Resp, _Client) ->
                  {_, _} -> #{message => Message, error_code => ErrorCode,
                              op_index => OpIndex}
              end,
-    Class = case Status of
+    Class = case Message of
+                <<"not found:", _/binary>> -> mongreldb_not_found_error;
+                _ -> case Status of
                 401 -> mongreldb_auth_error;
                 403 -> mongreldb_auth_error;
                 404 -> mongreldb_not_found_error;
                 409 -> mongreldb_conflict_error;
                 _ -> mongreldb_query_error
+                end
             end,
     Fallback = case Status of
                    401 -> <<"Authentication failed (401)">>;
