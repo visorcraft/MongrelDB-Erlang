@@ -67,8 +67,7 @@
          txn_commit/2, txn_commit/3, txn_rollback/1]).
 
 %% ── Low-level HTTP (for endpoints not yet wrapped) ───────────────────────────
--export([get/2, post/2, post/3, http_delete/2, response_json/1,
--export([get/2, post/2, post/3, put/3, http_delete/2, response_json/1,
+-export([get/2, post/2, post/3, http_put/3, http_delete/2, response_json/1,
          flatten_cells/1, normalize_condition/2, url_path_escape/1]).
 
 %% ── Exception accessors ──────────────────────────────────────────────────────
@@ -200,7 +199,7 @@ history_retention(Client) ->
     response_json(Resp).
 
 set_history_retention_epochs(Client, Epochs) when is_integer(Epochs), Epochs >= 0 ->
-    {ok, Resp} = put(Client, <<"/history/retention">>,
+    {ok, Resp} = http_put(Client, <<"/history/retention">>,
                      #{<<"history_retention_epochs">> => Epochs}),
     response_json(Resp).
 
@@ -575,7 +574,7 @@ post(Client, Path) ->
 post(Client, Path, Body) ->
     request(Client, post, Path, Body).
 
-put(Client, Path, Body) ->
+http_put(Client, Path, Body) ->
     request(Client, put, Path, Body).
 
 %% @doc Perform a DELETE request, mapping HTTP errors to typed exceptions.
