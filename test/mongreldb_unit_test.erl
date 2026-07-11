@@ -82,7 +82,8 @@ create_table_wire_shape_test() ->
     Columns = [#{<<"id">> => 1, <<"name">> => <<"status">>,
                  <<"ty">> => <<"enum">>,
                  <<"enum_variants">> => [<<"draft">>, <<"active">>],
-                 <<"default_value">> => <<"draft">>}],
+                 <<"default_value">> => 3,
+                 <<"default_expr">> => <<"uuid">>}],
     Constraints = #{<<"checks">> =>
         [#{<<"id">> => 1, <<"name">> => <<"known_status">>,
            <<"expr">> => #{<<"Eq">> =>
@@ -93,8 +94,10 @@ create_table_wire_shape_test() ->
     Decoded = json:decode(Wire),
     ?assertEqual([<<"draft">>, <<"active">>],
                  maps:get(<<"enum_variants">>, hd(maps:get(<<"columns">>, Decoded)))),
-    ?assertEqual(<<"draft">>,
+    ?assertEqual(3,
                  maps:get(<<"default_value">>, hd(maps:get(<<"columns">>, Decoded)))),
+    ?assertEqual(<<"uuid">>,
+                 maps:get(<<"default_expr">>, hd(maps:get(<<"columns">>, Decoded)))),
     ?assertEqual(<<"known_status">>,
                  maps:get(<<"name">>, hd(maps:get(<<"checks">>,
                      maps:get(<<"constraints">>, Decoded))))).

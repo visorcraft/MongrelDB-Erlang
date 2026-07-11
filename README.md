@@ -101,7 +101,8 @@ Q3 = mongreldb:query_limit(Q2, 100),
 {ok, _} = mongreldb:sql(Db, <<"UPDATE orders SET amount = 200.0 WHERE customer = 'Bob'">>).
 ```
 
-Column maps pass `enum_variants` and `default_value` unchanged. Use
+Column maps pass `enum_variants`, scalar `default_value`, and dynamic
+`default_expr` (`<<"now">>` or `<<"uuid">>`) unchanged. Use
 `create_table/4` for native table CHECKs:
 
 ```erlang
