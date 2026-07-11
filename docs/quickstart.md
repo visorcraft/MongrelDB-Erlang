@@ -95,11 +95,18 @@ run() ->
     true = mongreldb:health(Db),
 
     %% 3. Create a table. Each column has a stable numeric id, a name, a type,
-    %%    and flags. The first column is the primary key.
+    %%    and flags. The first column is the primary key. default_value is a
+    %%    literal JSON scalar; default_expr is a separate dynamic expression.
     {ok, Tid} = mongreldb:create_table(Db, <<"orders">>, [
         #{<<"id">> => 1, <<"name">> => <<"id">>,       <<"ty">> => <<"int64">>,   <<"primary_key">> => true,  <<"nullable">> => false},
         #{<<"id">> => 2, <<"name">> => <<"customer">>, <<"ty">> => <<"varchar">>, <<"primary_key">> => false, <<"nullable">> => false},
-        #{<<"id">> => 3, <<"name">> => <<"amount">>,   <<"ty">> => <<"float64">>, <<"primary_key">> => false, <<"nullable">> => false}
+        #{<<"id">> => 3, <<"name">> => <<"amount">>,   <<"ty">> => <<"float64">>, <<"primary_key">> => false, <<"nullable">> => false},
+        #{<<"id">> => 4, <<"name">> => <<"status">>,   <<"ty">> => <<"varchar">>, <<"primary_key">> => false, <<"nullable">> => false,
+          <<"default_value">> => <<"draft">>},
+        #{<<"id">> => 5, <<"name">> => <<"active">>,   <<"ty">> => <<"bool">>,    <<"primary_key">> => false, <<"nullable">> => false,
+          <<"default_value">> => true},
+        #{<<"id">> => 6, <<"name">> => <<"created_at">>, <<"ty">> => <<"varchar">>, <<"primary_key">> => false, <<"nullable">> => false,
+          <<"default_expr">> => <<"now">>}
     ]),
     io:format("created table id: ~p~n", [Tid]),
 
@@ -134,7 +141,7 @@ rebar3 shell
 |------|--------------|
 | `mongreldb:connect/1` | Builds an HTTP client targeting one daemon. Safe to share across processes. |
 | `mongreldb:health/1` | GET `/health`; returns `true` when the daemon answers. Always check before real work. |
-| `mongreldb:create_table/3` | POST `/kit/create_table`. Column `id`s are the on-wire identifiers; use them everywhere else. |
+| `mongreldb:create_table/3` | POST `/kit/create_table`. Column `id`s are the on-wire identifiers; use them everywhere else. `default_value` is a literal JSON scalar; `default_expr` is a separate dynamic-expression key. |
 | `mongreldb:put/3` | Single-op transaction: POST `/kit/txn` with one `put` op. `cells` is flattened to `[col_id, val, ...]`. |
 | `mongreldb:query/2` + `query_where/3` | Builds a `/kit/query` body. `query_where` pushes a condition down to a native index. |
 | `query_projection/2` | Server returns only those column ids, saving bandwidth. |
@@ -142,7 +149,24 @@ rebar3 shell
 | `query_execute/2` | Sends the query and decodes the `rows` array. |
 | `mongreldb:count/2` | GET `/tables/{name}/count`. |
 
-## 6. Common pitfalls
+## 6. History retention
+
+MongrelDB keeps older epochs for time-travel reads. You can read the current
+retention window and the earliest readable epoch, then change the window:
+
+```erlang
+{ok, Epochs}     = mongreldb:history_retention_epochs(Db),
+{ok, Earliest}   = mongreldb:earliest_retained_epoch(Db),
+{ok, NewEpochs}  = mongreldb:set_history_retention_epochs(Db, 1000),
+
+%% Read an older version of a row with SQL AS OF EPOCH.
+{ok, _} = mongreldb:sql(Db, <<"SELECT * FROM orders AS OF EPOCH 5 WHERE id = 1">>).
+```
+
+Lowering the window advances `earliest_retained_epoch` and prunes old epochs;
+raising it again does not restore epochs that have already been dropped.
+
+## 7. Common pitfalls
 
 **Using the column name instead of the column id.** Every on-wire API uses the
 numeric `id` from `create_table`, never the `name`. The query builder's
@@ -173,6 +197,11 @@ lists it as a dependency, so starting the `mongreldb` app brings it up.
 IPC for `SELECT` in most builds, so `sql` returns an empty list (not an error)
 for result sets. Use it for DDL/DML and statements whose success is the
 signal; use the native query builder for typed row retrieval.
+
+**Confusing `default_value` with `default_expr`.** `default_value` is a literal
+JSON scalar (`"draft"`, `7`, `true`, `null`, or even the literal string
+`"now"`). `default_expr` is a separate key for dynamic expressions such as
+`"now"` or `"uuid"` evaluated by the engine. They are not aliases.
 
 ## Next steps
 

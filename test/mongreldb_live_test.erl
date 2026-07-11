@@ -74,6 +74,8 @@ conformance_test_() ->
                    fun() -> t_schema_for(ClientState) end,
                    fun() -> t_compact_all(ClientState) end,
                    fun() -> t_compact_single(ClientState) end,
+                   fun() -> t_history_retention_read_old_epoch(ClientState) end,
+                   fun() -> t_history_retention_lower_advances_floor(ClientState) end,
                    fun() -> t_not_found_error(ClientState) end,
                    fun() -> t_conflict_error(ClientState) end
                  ]
@@ -341,6 +343,57 @@ t_compact_single(Client) ->
     end,
     cleanup(Client, Name).
 
+t_history_retention_read_old_epoch(Client) ->
+    skip_if_no_client(Client),
+    Name = unique_table("erl_history"),
+    {ok, _} = mongreldb:set_history_retention_epochs(Client, 1000),
+    {ok, 1000} = mongreldb:history_retention_epochs(Client),
+    {ok, InitialFloor} = mongreldb:earliest_retained_epoch(Client),
+    fresh_table(Client, Name, history_columns()),
+    {ok, _} = mongreldb:put(Client, Name, #{1 => 1, 2 => <<"first">>}),
+    {ok, _} = mongreldb:put(Client, Name, #{1 => 1, 2 => <<"second">>}),
+    OldEpoch = find_epoch_with_value(Client, Name, 1, <<"first">>,
+                                      InitialFloor, InitialFloor + 500),
+    ?assert(is_integer(OldEpoch) andalso OldEpoch >= InitialFloor),
+    %% Restore a sane default for any shared test server.
+    {ok, _} = mongreldb:set_history_retention_epochs(Client, 1024),
+    cleanup(Client, Name).
+
+t_history_retention_lower_advances_floor(Client) ->
+    skip_if_no_client(Client),
+    Name = unique_table("erl_history_drop"),
+    {ok, _} = mongreldb:set_history_retention_epochs(Client, 1000),
+    {ok, InitialFloor} = mongreldb:earliest_retained_epoch(Client),
+    fresh_table(Client, Name, history_columns()),
+    {ok, _} = mongreldb:put(Client, Name, #{1 => 1, 2 => <<"first">>}),
+    {ok, _} = mongreldb:put(Client, Name, #{1 => 1, 2 => <<"second">>}),
+    OldEpoch = find_epoch_with_value(Client, Name, 1, <<"first">>,
+                                      InitialFloor, InitialFloor + 500),
+    %% Narrow the window and advance the current epoch so pruning happens.
+    {ok, _} = mongreldb:set_history_retention_epochs(Client, 1),
+    {ok, 1} = mongreldb:history_retention_epochs(Client),
+    {ok, _} = mongreldb:put(Client, Name, #{1 => 1, 2 => <<"third">>}),
+    {ok, NewFloor} = mongreldb:earliest_retained_epoch(Client),
+    ?assert(NewFloor > InitialFloor),
+    %% The previously readable epoch is now below the floor and errors out.
+    ?assertThrow({mongreldb_error, mongreldb_query_error, _},
+                 mongreldb:sql(Client, ["SELECT label FROM ", Name,
+                                        " AS OF EPOCH ", integer_to_binary(OldEpoch),
+                                        " WHERE id = 1"])),
+    %% Re-expanding the window cannot restore already-pruned epochs.
+    {ok, _} = mongreldb:set_history_retention_epochs(Client, 1000),
+    {ok, 1000} = mongreldb:history_retention_epochs(Client),
+    ?assertThrow({mongreldb_error, mongreldb_query_error, _},
+                 mongreldb:sql(Client, ["SELECT label FROM ", Name,
+                                        " AS OF EPOCH ", integer_to_binary(OldEpoch),
+                                        " WHERE id = 1"])),
+    %% The floor never moves backward.
+    {ok, FinalFloor} = mongreldb:earliest_retained_epoch(Client),
+    ?assert(FinalFloor >= NewFloor),
+    %% Restore a sane default for any shared test server.
+    {ok, _} = mongreldb:set_history_retention_epochs(Client, 1024),
+    cleanup(Client, Name).
+
 t_not_found_error(Client) ->
     skip_if_no_client(Client),
     Name = unique_table("erl_missing"),
@@ -412,6 +465,23 @@ int_col(Id, Name) -> int_col(Id, Name, false).
 float_col(Id, Name) ->
     #{<<"id">> => Id, <<"name">> => Name, <<"ty">> => <<"float64">>,
       <<"primary_key">> => false, <<"nullable">> => false}.
+
+varchar_col(Id, Name) ->
+    #{<<"id">> => Id, <<"name">> => Name, <<"ty">> => <<"varchar">>,
+      <<"primary_key">> => false, <<"nullable">> => false}.
+
+history_columns() ->
+    [int_col(1, <<"id">>, true), varchar_col(2, <<"label">>)].
+
+find_epoch_with_value(Client, Table, Id, Value, Lo, Hi) when Lo =< Hi ->
+    SQL = ["SELECT label FROM ", Table, " AS OF EPOCH ",
+           integer_to_binary(Lo), " WHERE id = ", integer_to_binary(Id)],
+    case mongreldb:sql(Client, SQL) of
+        {ok, [#{<<"label">> := Value}]} -> Lo;
+        _ -> find_epoch_with_value(Client, Table, Id, Value, Lo + 1, Hi)
+    end;
+find_epoch_with_value(_Client, _Table, _Id, _Value, _Lo, _Hi) ->
+    throw({test_failed, could_not_find_epoch}).
 
 fresh_table(Client, Name, Columns) ->
     try mongreldb:drop_table(Client, Name) catch _:_ -> ok end,

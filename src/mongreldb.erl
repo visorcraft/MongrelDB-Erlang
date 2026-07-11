@@ -43,6 +43,7 @@
 %% ── Health & tables ──────────────────────────────────────────────────────────
 -export([health/1, table_names/1, create_table/3, create_table/4,
          drop_table/2, count/2, history_retention/1,
+         history_retention_epochs/1, earliest_retained_epoch/1,
          set_history_retention_epochs/2]).
 
 %% ── CRUD (via the Kit typed transaction endpoint) ────────────────────────────
@@ -68,7 +69,8 @@
 
 %% ── Low-level HTTP (for endpoints not yet wrapped) ───────────────────────────
 -export([get/2, post/2, post/3, http_put/3, http_delete/2, response_json/1,
-         flatten_cells/1, normalize_condition/2, url_path_escape/1]).
+         flatten_cells/1, normalize_condition/2, url_path_escape/1,
+         extract_retention_integer/2]).
 
 %% ── Exception accessors ──────────────────────────────────────────────────────
 -export([error_code/1, op_index/1]).
@@ -194,14 +196,72 @@ table_names(Client) ->
         _ -> {ok, []}
     end.
 
+%% @doc Return the full history-retention response map from the daemon.
+%% The frozen contract returns exactly `history_retention_epochs' and
+%% `earliest_retained_epoch' as non-negative integers.
+-spec history_retention(client()) -> {ok, map()}.
 history_retention(Client) ->
     {ok, Resp} = get(Client, <<"/history/retention">>),
     response_json(Resp).
 
+%% @doc Return the configured history retention window in epochs.
+-spec history_retention_epochs(client()) -> {ok, non_neg_integer()}.
+history_retention_epochs(Client) ->
+    {ok, Resp} = get(Client, <<"/history/retention">>),
+    extract_retention_integer(Resp, <<"history_retention_epochs">>).
+
+%% @doc Return the earliest epoch that is still readable via `AS OF EPOCH'.
+-spec earliest_retained_epoch(client()) -> {ok, non_neg_integer()}.
+earliest_retained_epoch(Client) ->
+    {ok, Resp} = get(Client, <<"/history/retention">>),
+    extract_retention_integer(Resp, <<"earliest_retained_epoch">>).
+
+%% @doc Set the history retention window to `Epochs' epochs.
+%%
+%% Returns `{ok, Epochs}' on success, where the value is the daemon-confirmed
+%% retention window. Validates the response shape and integer values;
+%% non-2xx responses are mapped through the usual typed exceptions.
+-spec set_history_retention_epochs(client(), non_neg_integer()) ->
+    {ok, non_neg_integer()}.
 set_history_retention_epochs(Client, Epochs) when is_integer(Epochs), Epochs >= 0 ->
     {ok, Resp} = http_put(Client, <<"/history/retention">>,
                      #{<<"history_retention_epochs">> => Epochs}),
-    response_json(Resp).
+    extract_retention_integer(Resp, <<"history_retention_epochs">>).
+
+%% Extract one of the two frozen /history/retention integer fields. The
+%% response must contain exactly the two expected keys, both non-negative
+%% integers; anything else raises mongreldb_query_error.
+-spec extract_retention_integer(response(), binary()) -> {ok, non_neg_integer()}.
+extract_retention_integer(Resp, Key) ->
+    case response_json(Resp) of
+        {ok, M} when is_map(M) ->
+            Expected = [<<"earliest_retained_epoch">>, <<"history_retention_epochs">>],
+            case lists:sort(maps:keys(M)) of
+                Expected ->
+                    case maps:get(Key, M, undefined) of
+                        V when is_integer(V), V >= 0 -> {ok, V};
+                        V -> throw({mongreldb_error, mongreldb_query_error,
+                                    iolist_to_binary(["expected non-negative integer for ",
+                                                      Key, ", got: ", format_value(V)])})
+                    end;
+                _ ->
+                    throw({mongreldb_error, mongreldb_query_error,
+                           iolist_to_binary(["unexpected /history/retention response: ",
+                                             format_value(M)])})
+            end;
+        {ok, Other} ->
+            throw({mongreldb_error, mongreldb_query_error,
+                   iolist_to_binary(["unexpected /history/retention response: ",
+                                     format_value(Other)])});
+        {error, Reason} ->
+            throw({mongreldb_error, mongreldb_query_error,
+                   iolist_to_binary(["invalid /history/retention response JSON: ",
+                                     format_value(Reason)])})
+    end.
+
+-spec format_value(term()) -> binary().
+format_value(V) when is_binary(V) -> V;
+format_value(V) -> iolist_to_binary(io_lib:format("~p", [V])).
 
 %% @doc Create a table with typed columns. Returns the assigned table id.
 -spec create_table(client(), Name, Columns) -> {ok, integer()} when
@@ -574,6 +634,8 @@ post(Client, Path) ->
 post(Client, Path, Body) ->
     request(Client, post, Path, Body).
 
+%% @doc Perform a PUT request with a JSON body (Content-Type: application/json).
+-spec http_put(client(), binary() | string(), term()) -> {ok, response()}.
 http_put(Client, Path, Body) ->
     request(Client, put, Path, Body).
 
@@ -922,6 +984,7 @@ ensure_binary(L) when is_list(L) -> iolist_to_binary(L).
 
 method_atom(get) -> get;
 method_atom(post) -> post;
+method_atom(put) -> put;
 method_atom(delete) -> delete.
 
 headers_to_list(Headers) ->

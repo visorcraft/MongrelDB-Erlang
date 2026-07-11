@@ -23,8 +23,8 @@
 |---|---|---|
 | Erlang client | `mongreldb` | `rebar3` dep, Hex |
 
-History retention: `history_retention/1` and
-`set_history_retention_epochs/2`.
+History retention: `history_retention/1`, `history_retention_epochs/1`,
+`earliest_retained_epoch/1`, and `set_history_retention_epochs/2`.
 
 ## Requirements
 
@@ -104,15 +104,30 @@ Q3 = mongreldb:query_limit(Q2, 100),
 {ok, _} = mongreldb:sql(Db, <<"UPDATE orders SET amount = 200.0 WHERE customer = 'Bob'">>).
 ```
 
-Column maps pass `enum_variants`, scalar `default_value`, and dynamic
-`default_expr` (`<<"now">>` or `<<"uuid">>`) unchanged. Use
-`create_table/4` for native table CHECKs:
+Column maps pass `enum_variants`, scalar `default_value` (strings, numbers,
+booleans, explicit `null`, and literal strings such as `<<"now">>`), and
+dynamic `default_expr` (`<<"now">>` or `<<"uuid">>`) unchanged. Note that
+`default_expr` is a separate key, not an alias for `default_value`.
+Use `create_table/4` for native table CHECKs:
 
 ```erlang
+ColumnsWithDefaults = [
+    #{<<"id">> => 1, <<"name">> => <<"id">>,          <<"ty">> => <<"int64">>,   <<"primary_key">> => true,  <<"nullable">> => false},
+    #{<<"id">> => 2, <<"name">> => <<"status">>,     <<"ty">> => <<"varchar">>, <<"primary_key">> => false, <<"nullable">> => false,
+      <<"default_value">> => <<"draft">>},
+    #{<<"id">> => 3, <<"name">> => <<"priority">>,   <<"ty">> => <<"int64">>,   <<"primary_key">> => false, <<"nullable">> => false,
+      <<"default_value">> => 7},
+    #{<<"id">> => 4, <<"name">> => <<"active">>,     <<"ty">> => <<"bool">>,    <<"primary_key">> => false, <<"nullable">> => false,
+      <<"default_value">> => true},
+    #{<<"id">> => 5, <<"name">> => <<"optional">>,   <<"ty">> => <<"varchar">>, <<"primary_key">> => false, <<"nullable">> => true,
+      <<"default_value">> => null},
+    #{<<"id">> => 6, <<"name">> => <<"created_at">>, <<"ty">> => <<"varchar">>, <<"primary_key">> => false, <<"nullable">> => false,
+      <<"default_expr">> => <<"now">>}
+],
 Checks = #{<<"checks">> => [#{<<"id">> => 1, <<"name">> => <<"amount_nonneg">>,
   <<"expr">> => #{<<"Ge">> => [#{<<"Col">> => 3},
     #{<<"Lit">> => #{<<"Float64">> => 0.0}}]}}]},
-mongreldb:create_table(Db, <<"orders">>, Columns, Checks).
+mongreldb:create_table(Db, <<"orders">>, ColumnsWithDefaults, Checks).
 ```
 
 ## Authentication
@@ -238,6 +253,10 @@ end.
 | `create_table/3`, `create_table/4` -> `{ok, integer()}` | Create a table; returns the table id |
 | `drop_table/2` -> `ok` | Drop a table |
 | `count/2` -> `{ok, integer()}` | Row count |
+| `history_retention/1` -> `{ok, map()}` | Full retention response |
+| `history_retention_epochs/1` -> `{ok, non_neg_integer()}` | Configured retention window |
+| `earliest_retained_epoch/1` -> `{ok, non_neg_integer()}` | Earliest readable epoch |
+| `set_history_retention_epochs/2` -> `{ok, non_neg_integer()}` | Set retention window |
 | `put/3`, `put/4` -> `{ok, map()}` | Insert a row |
 | `upsert/3`, `upsert/4` -> `{ok, map()}` | Upsert a row |
 | `delete/3` -> `ok` | Delete by row id |
