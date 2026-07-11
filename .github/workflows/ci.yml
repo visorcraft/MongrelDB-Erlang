@@ -125,10 +125,12 @@ jobs:
 
       - name: Run examples
         run: |
+          # Compile the library so examples can find the beam files
+          rebar3 compile
+          BEAM_PATH="_build/default/lib/mongreldb/ebin"
           for ex in examples/*.erl; do
             echo "=== Running $ex ==="
-            rebar3 as examples escriptize || true
-            escript "$ex" || { echo "FAILED: $ex"; exit 1; }
+            escript -pa "$BEAM_PATH" "$ex" || { echo "FAILED: $ex"; exit 1; }
           done
 
       - name: Stop mongreldb-server for examples
