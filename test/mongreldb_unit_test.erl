@@ -120,6 +120,41 @@ static_default_matrix_test() ->
     ?assertEqual(<<"now">>, maps:get(<<"default_expr">>, ExprDecoded)),
     ?assertNot(maps:is_key(<<"default_value">>, ExprDecoded)).
 
+static_default_through_create_table_test() ->
+    {ok, _} = application:ensure_all_started(inets),
+    {ok, Listener} = gen_tcp:listen(0, [binary, {active, false}, {reuseaddr, true}]),
+    {ok, Port} = inet:port(Listener),
+    Parent = self(),
+    spawn(fun() -> create_table_capture(Parent, Listener) end),
+    Url = list_to_binary("http://127.0.0.1:" ++ integer_to_list(Port)),
+    {ok, C} = mongreldb:connect(#{url => Url}),
+    Columns = [
+        #{<<"id">> => 1, <<"name">> => <<"s">>, <<"ty">> => <<"varchar">>,
+          <<"default_value">> => <<"draft">>},
+        #{<<"id">> => 2, <<"name">> => <<"n">>, <<"ty">> => <<"int64">>,
+          <<"default_value">> => 7},
+        #{<<"id">> => 3, <<"name">> => <<"b">>, <<"ty">> => <<"bool">>,
+          <<"default_value">> => true},
+        #{<<"id">> => 4, <<"name">> => <<"x">>, <<"ty">> => <<"varchar">>,
+          <<"default_value">> => null},
+        #{<<"id">> => 5, <<"name">> => <<"created_at">>, <<"ty">> => <<"timestamp">>,
+          <<"default_expr">> => <<"now">>}
+    ],
+    {ok, _} = mongreldb:create_table(C, <<"defaults">>, Columns),
+    receive
+        {create_table_body, Body} ->
+            Decoded = json:decode(Body),
+            Cols = maps:get(<<"columns">>, Decoded),
+            ColById = fun(Id) -> hd([X || X <- Cols, maps:get(<<"id">>, X) =:= Id]) end,
+            ?assertEqual(<<"draft">>, maps:get(<<"default_value">>, ColById(1))),
+            ?assertEqual(7, maps:get(<<"default_value">>, ColById(2))),
+            ?assertEqual(true, maps:get(<<"default_value">>, ColById(3))),
+            ?assertEqual(null, maps:get(<<"default_value">>, ColById(4))),
+            ?assertEqual(<<"now">>, maps:get(<<"default_expr">>, ColById(5))),
+            ?assertNot(maps:is_key(<<"default_value">>, ColById(5)))
+    after 5000 -> ?assert(fail("expected create_table request body"))
+    end.
+
 %% ── History retention response validation ─────────────────────────────────────
 
 history_retention_getters_extract_integers_test() ->
@@ -300,6 +335,21 @@ capture_body(Req) ->
     case binary:split(Req, <<"\r\n\r\n">>) of
         [_, Body] -> Body;
         _ -> <<>>
+    end.
+
+create_table_capture(Parent, Listener) ->
+    case gen_tcp:accept(Listener, 5000) of
+        {ok, Sock} ->
+            {ok, Req} = gen_tcp:recv(Sock, 0, 5000),
+            Body = capture_body(Req),
+            Parent ! {create_table_body, Body},
+            Response = iolist_to_binary(json:encode(#{<<"table_id">> => 1})),
+            Http = [<<"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ">>,
+                      integer_to_binary(byte_size(Response)), <<"\r\n\r\n">>, Response],
+            ok = gen_tcp:send(Sock, Http),
+            gen_tcp:close(Sock);
+        {error, _} ->
+            ok
     end.
 
 history_retention_forbidden(Parent, Listener) ->
