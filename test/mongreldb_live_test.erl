@@ -376,14 +376,14 @@ t_history_retention_lower_advances_floor(Client) ->
     {ok, NewFloor} = mongreldb:earliest_retained_epoch(Client),
     ?assert(NewFloor > InitialFloor),
     %% The previously readable epoch is now below the floor and errors out.
-    ?assertThrow({mongreldb_error, mongreldb_query_error, _},
+    ?assertThrow({mongreldb_error, mongreldb_conflict_error, _},
                  mongreldb:sql(Client, ["SELECT label FROM ", Name,
                                         " AS OF EPOCH ", integer_to_binary(OldEpoch),
                                         " WHERE id = 1"])),
     %% Re-expanding the window cannot restore already-pruned epochs.
     {ok, _} = mongreldb:set_history_retention_epochs(Client, 1000),
     {ok, 1000} = mongreldb:history_retention_epochs(Client),
-    ?assertThrow({mongreldb_error, mongreldb_query_error, _},
+    ?assertThrow({mongreldb_error, mongreldb_conflict_error, _},
                  mongreldb:sql(Client, ["SELECT label FROM ", Name,
                                         " AS OF EPOCH ", integer_to_binary(OldEpoch),
                                         " WHERE id = 1"])),
