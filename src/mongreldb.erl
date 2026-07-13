@@ -50,7 +50,7 @@
 -export([put/3, put/4, upsert/3, upsert/4, delete/3, delete_by_pk/3]).
 
 %% ── Query ────────────────────────────────────────────────────────────────────
--export([query/2, query_where/3, query_projection/2, query_limit/2,
+-export([query/2, query_where/3, query_projection/2, query_limit/2, query_offset/2,
          query_build/1, query_execute/2, query_truncated/1]).
 
 %% ── SQL ──────────────────────────────────────────────────────────────────────
@@ -110,6 +110,7 @@
     conditions := [map()],
     projection => [integer()] | undefined,
     limit => integer() | undefined,
+    offset => integer() | undefined,
     last_truncated := boolean()
 }.
 
@@ -405,6 +406,10 @@ query_projection(Q, ColumnIds) -> Q#{projection => ColumnIds}.
 -spec query_limit(query(), integer()) -> query().
 query_limit(Q, Limit) -> Q#{limit => Limit}.
 
+%% @doc Skip matching rows before applying the limit.
+-spec query_offset(query(), integer()) -> query().
+query_offset(Q, Offset) -> Q#{offset => Offset}.
+
 %% @doc Build the request payload that will be sent to `/kit/query'.
 -spec query_build(query()) -> map().
 query_build(#{table := Table, conditions := Conditions} = Q) ->
@@ -417,9 +422,13 @@ query_build(#{table := Table, conditions := Conditions} = Q) ->
                    undefined -> Payload1;
                    Cols -> Payload1#{<<"projection">> => Cols}
                end,
-    case maps:get(limit, Q, undefined) of
+    Payload3 = case maps:get(limit, Q, undefined) of
         undefined -> Payload2;
         Lim -> Payload2#{<<"limit">> => Lim}
+    end,
+    case maps:get(offset, Q, undefined) of
+        undefined -> Payload3;
+        Off -> Payload3#{<<"offset">> => Off}
     end.
 
 %% @doc Run the query and return the matching rows. Also records whether the

@@ -63,14 +63,16 @@ build_payload_shape_test() ->
     Q1 = mongreldb:query_where(Q0, <<"range">>, #{<<"column">> => 3, <<"min">> => 100}),
     Q2 = mongreldb:query_projection(Q1, [1, 2]),
     Q3 = mongreldb:query_limit(Q2, 10),
-    Payload = mongreldb:query_build(Q3),
+    Q4 = mongreldb:query_offset(Q3, 12),
+    Payload = mongreldb:query_build(Q4),
     ?assertEqual(<<"orders">>, maps:get(<<"table">>, Payload)),
     Conditions = maps:get(<<"conditions">>, Payload),
     ?assertEqual(1, length(Conditions)),
     ?assertEqual(#{<<"column_id">> => 3, <<"lo">> => 100},
                  maps:get(<<"range">>, hd(Conditions))),
     ?assertEqual([1, 2], maps:get(<<"projection">>, Payload)),
-    ?assertEqual(10, maps:get(<<"limit">>, Payload)).
+    ?assertEqual(10, maps:get(<<"limit">>, Payload)),
+    ?assertEqual(12, maps:get(<<"offset">>, Payload)).
 
 build_omits_unset_fields_test() ->
     {ok, C} = mongreldb:connect(#{url => <<"http://127.0.0.1:1">>}),

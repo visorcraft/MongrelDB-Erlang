@@ -262,7 +262,7 @@ end.
 | `delete/3` -> `ok` | Delete by row id |
 | `delete_by_pk/3` -> `ok` | Delete by primary key |
 | `query/2` -> `query()` | Start a native query |
-| `query_where/3`, `query_projection/2`, `query_limit/2` | Build the query |
+| `query_where/3`, `query_projection/2`, `query_limit/2`, `query_offset/2` | Build the query |
 | `query_build/1` -> `map()` | Build the request payload |
 | `query_execute/2` -> `{ok, [map()], query()}` | Run the query |
 | `query_truncated/1` -> `boolean()` | Whether the last result hit the limit |
