@@ -665,11 +665,13 @@ response_json(Resp) ->
     end.
 
 %% @doc Convert a column-id-to-value map to the server's flat
-%% `[ColId, Value, ColId, Value, ...]' list. Pair order is not significant --
-%% each value is preceded by its own column id.
+%% `[ColId, Value, ColId, Value, ...]' list in ascending column-id order.
+%% Stable ordering is required for idempotency keys: the server hashes the
+%% request payload, and unordered map iteration would make two commits of the
+%% same cells look like a reuse mismatch.
 -spec flatten_cells(cells()) -> list().
 flatten_cells(Cells) when is_map(Cells) ->
-    flat_pairs(maps:to_list(Cells), []).
+    flat_pairs(lists:keysort(1, maps:to_list(Cells)), []).
 
 %% @doc Translate friendly parameter aliases to the server's canonical on-wire
 %% keys. Both spellings are accepted, so callers may use whichever is clearer.
