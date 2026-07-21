@@ -90,9 +90,15 @@ create_table_wire_shape_test() ->
         [#{<<"id">> => 1, <<"name">> => <<"known_status">>,
            <<"expr">> => #{<<"Eq">> =>
                [#{<<"Col">> => 1}, #{<<"Lit">> => #{<<"Bytes">> => <<"draft">>}}]}}]},
+    Indexes = [#{<<"name">> => <<"ann">>, <<"column_id">> => 2,
+                 <<"kind">> => <<"ann">>, <<"options">> => #{<<"ann">> => #{
+                     <<"algorithm">> => <<"diskann">>, <<"quantization">> => <<"dense">>,
+                     <<"diskann">> => #{<<"r">> => 64, <<"l">> => 128,
+                         <<"beam_width">> => 8, <<"alpha">> => 120}}}}],
     Wire = iolist_to_binary(json:encode(#{<<"name">> => <<"articles">>,
                                           <<"columns">> => Columns,
-                                          <<"constraints">> => Constraints})),
+                                          <<"constraints">> => Constraints,
+                                          <<"indexes">> => Indexes})),
     Decoded = json:decode(Wire),
     ?assertEqual([<<"draft">>, <<"active">>],
                  maps:get(<<"enum_variants">>, hd(maps:get(<<"columns">>, Decoded)))),
@@ -102,7 +108,11 @@ create_table_wire_shape_test() ->
                  maps:get(<<"default_expr">>, hd(maps:get(<<"columns">>, Decoded)))),
     ?assertEqual(<<"known_status">>,
                  maps:get(<<"name">>, hd(maps:get(<<"checks">>,
-                     maps:get(<<"constraints">>, Decoded))))).
+                     maps:get(<<"constraints">>, Decoded))))),
+    Ann = maps:get(<<"ann">>, maps:get(<<"options">>, hd(maps:get(<<"indexes">>, Decoded)))),
+    ?assertEqual(<<"diskann">>, maps:get(<<"algorithm">>, Ann)),
+    ?assertEqual(<<"dense">>, maps:get(<<"quantization">>, Ann)),
+    ?assertEqual(8, maps:get(<<"beam_width">>, maps:get(<<"diskann">>, Ann))).
 
 static_default_matrix_test() ->
     lists:foreach(fun({Name, Value}) ->
