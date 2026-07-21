@@ -201,6 +201,22 @@ Q2 = mongreldb:query_limit(Q1, 100),
 {ok, _} = mongreldb:sql(Db, <<"SELECT id, ROW_NUMBER() OVER (PARTITION BY customer ORDER BY amount DESC) FROM orders">>).
 ```
 
+## ANN index backends
+
+The engine's `ann` index is swappable across three backends - `hnsw` (the default), `diskann`, and `ivf` - selected with the `algorithm` option. Quantization is independently configurable: `dense`, `binary_sign`, or `product` (product quantization, with `num_subvectors`, `bits_per_subvector`, `pq_training_samples`, `pq_seed`, and `pq_rerank_factor`). These are ordinary DDL strings run through `sql`, so no client changes are needed.
+
+```erlang
+%% DiskANN (on-disk graph, terabyte-scale)
+{ok, _} = mongreldb:sql(Db, <<"CREATE INDEX orders_emb_diskann ON orders USING ann (embedding) WITH (algorithm = 'diskann', quantization = 'dense', diskann_l = 50, diskann_r = 64, beam_width = 8)">>),
+
+%% IVF with product quantization (clustered, memory-frugal)
+{ok, _} = mongreldb:sql(Db, <<"CREATE INDEX orders_emb_ivf ON orders USING ann (embedding) WITH (algorithm = 'ivf', quantization = 'product', nlist = 1024, nprobe = 16, num_subvectors = 16, bits_per_subvector = 8)">>),
+
+%% HNSW with product quantization (recall-tuned)
+{ok, _} = mongreldb:sql(Db, <<"CREATE INDEX orders_emb_hnsw_pq ON orders USING ann (embedding) WITH (algorithm = 'hnsw', quantization = 'product', m = 16, ef_construction = 200, ef_search = 50, num_subvectors = 32, pq_training_samples = 50000, pq_rerank_factor = 8)">>),
+```
+
+
 ## User & role management
 
 User, role, and permission management is performed through SQL against the
