@@ -41,7 +41,7 @@
 -export([base_url/1, auth/1]).
 
 %% ── Health & tables ──────────────────────────────────────────────────────────
--export([health/1, table_names/1, create_table/3, create_table/4,
+-export([health/1, table_names/1, create_table/3, create_table/4, create_table/5,
          drop_table/2, count/2, history_retention/1,
          history_retention_epochs/1, earliest_retained_epoch/1,
          set_history_retention_epochs/2]).
@@ -269,22 +269,27 @@ format_value(V) -> iolist_to_binary(io_lib:format("~p", [V])).
       Name :: binary() | string(),
       Columns :: [column()].
 create_table(Client, Name, Columns) ->
-    Body = #{<<"name">> => to_binary(Name), <<"columns">> => Columns},
-    {ok, Resp} = post(Client, <<"/kit/create_table">>, Body),
-    case response_json(Resp) of
-        {ok, #{<<"table_id">> := Id}} when is_integer(Id) -> {ok, Id};
-        _ -> {ok, 0}
-    end.
+    create_table(Client, Name, Columns, undefined, undefined).
 
-%% @doc Create a table with a `constraints' block (uniques, foreign keys).
--spec create_table(client(), Name, Columns, Constraints) -> {ok, integer()} when
+create_table(Client, Name, Columns, Constraints) ->
+    create_table(Client, Name, Columns, Constraints, undefined).
+
+%% @doc Create a table with constraints and full secondary-index definitions.
+-spec create_table(client(), Name, Columns, Constraints, Indexes) -> {ok, integer()} when
       Name :: binary() | string(),
       Columns :: [column()],
-      Constraints :: map().
-create_table(Client, Name, Columns, Constraints) ->
-    Body = #{<<"name">> => to_binary(Name),
-             <<"columns">> => Columns,
-             <<"constraints">> => Constraints},
+      Constraints :: map() | undefined,
+      Indexes :: [map()] | undefined.
+create_table(Client, Name, Columns, Constraints, Indexes) ->
+    Body0 = #{<<"name">> => to_binary(Name), <<"columns">> => Columns},
+    Body1 = case Constraints of
+        undefined -> Body0;
+        _ -> Body0#{<<"constraints">> => Constraints}
+    end,
+    Body = case Indexes of
+        undefined -> Body1;
+        _ -> Body1#{<<"indexes">> => Indexes}
+    end,
     {ok, Resp} = post(Client, <<"/kit/create_table">>, Body),
     case response_json(Resp) of
         {ok, #{<<"table_id">> := Id}} when is_integer(Id) -> {ok, Id};

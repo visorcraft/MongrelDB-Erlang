@@ -250,7 +250,7 @@ end.
 | `connect/0`, `connect/1` | Construct a client (`url` defaults to `http://127.0.0.1:8453`) |
 | `health/1` -> `boolean()` | Check daemon health |
 | `table_names/1` -> `{ok, [binary()]}` | List table names |
-| `create_table/3`, `create_table/4` -> `{ok, integer()}` | Create a table; returns the table id |
+| `create_table/3`, `create_table/4`, `create_table/5` -> `{ok, integer()}` | Create a table with optional constraints and all index definitions |
 | `drop_table/2` -> `ok` | Drop a table |
 | `count/2` -> `{ok, integer()}` | Row count |
 | `history_retention/1` -> `{ok, map()}` | Full retention response |
