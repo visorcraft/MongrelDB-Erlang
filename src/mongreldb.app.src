@@ -1,7 +1,7 @@
 %% Application resource file for the MongrelDB Erlang client.
 {application, mongreldb,
  [{description, "Pure Erlang HTTP client for MongrelDB - typed CRUD, fluent query builder, idempotent batch transactions, SQL, and schema introspection."},
-  {vsn, "0.64.2"},
+  {vsn, "0.64.3"},
   {registered, []},
   {mod, {mongreldb_app, []}},
   {applications,
