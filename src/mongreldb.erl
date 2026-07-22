@@ -56,6 +56,10 @@
 %% ── SQL ──────────────────────────────────────────────────────────────────────
 -export([sql/2]).
 
+%% ── Durable recovery + retrieve_text (0.64+) ─────────────────────────────────
+-export([parse_commit_hlc/1, parse_query_status/1, commit_hlc/1, serialization_state/1,
+         retrieve_text/4, retrieve_text/5, query_status/2, cancel_query/2]).
+
 %% ── Schema ───────────────────────────────────────────────────────────────────
 -export([schema/1, schema_for/2]).
 
@@ -457,6 +461,153 @@ query_execute(Client, Q) ->
 %% limit. Returns `false' until a query has executed.
 -spec query_truncated(query()) -> boolean().
 query_truncated(#{last_truncated := T}) -> T.
+
+%% ====================================================================
+%% Durable recovery + retrieve_text (0.64+)
+%% ====================================================================
+
+%% @doc Structural HLC from durable recovery. Returns undefined when absent.
+-spec parse_commit_hlc(term()) -> map() | undefined.
+parse_commit_hlc(Raw) when is_map(Raw) ->
+    case maps:get(<<"physical_micros">>, Raw, maps:get(physical_micros, Raw, undefined)) of
+        undefined -> undefined;
+        Phys ->
+            Logical = maps:get(<<"logical">>, Raw, maps:get(logical, Raw, 0)),
+            Node = maps:get(<<"node_tiebreaker">>, Raw, maps:get(node_tiebreaker, Raw, 0)),
+            #{physical_micros => Phys, logical => Logical, node_tiebreaker => Node}
+    end;
+parse_commit_hlc(_) ->
+    undefined.
+
+parse_durable_outcome(Raw) when is_map(Raw) ->
+    HlcRaw = maps:get(<<"last_commit_hlc">>, Raw, maps:get(last_commit_hlc, Raw, undefined)),
+    #{
+        committed => maps:get(<<"committed">>, Raw, maps:get(committed, Raw, undefined)),
+        last_commit_epoch => maps:get(<<"last_commit_epoch">>, Raw, maps:get(last_commit_epoch, Raw, undefined)),
+        last_commit_hlc => parse_commit_hlc(HlcRaw),
+        serialization => to_listish(maps:get(<<"serialization">>, Raw, maps:get(serialization, Raw, <<>>))),
+        serialization_state => maps:get(<<"serialization_state">>, Raw, maps:get(serialization_state, Raw, undefined)),
+        terminal_state => maps:get(<<"terminal_state">>, Raw, maps:get(terminal_state, Raw, undefined))
+    };
+parse_durable_outcome(_) ->
+    #{committed => undefined, last_commit_epoch => undefined, last_commit_hlc => undefined,
+      serialization => "", serialization_state => undefined, terminal_state => undefined}.
+
+to_listish(B) when is_binary(B) -> binary_to_list(B);
+to_listish(L) when is_list(L) -> L;
+to_listish(undefined) -> "";
+to_listish(Other) -> lists:flatten(io_lib:format("~p", [Other])).
+
+%% @doc Decode GET /queries/{id} body into a structural status map.
+-spec parse_query_status(map()) -> map().
+parse_query_status(Raw) when is_map(Raw) ->
+    DurableRaw = maps:get(<<"durable">>, Raw, maps:get(durable, Raw, undefined)),
+    Durable = case DurableRaw of
+                  D when is_map(D) -> parse_durable_outcome(D);
+                  _ -> undefined
+              end,
+    Outcome = parse_durable_outcome(maps:get(<<"outcome">>, Raw, maps:get(outcome, Raw, undefined))),
+    HlcRaw = maps:get(<<"last_commit_hlc">>, Raw, maps:get(last_commit_hlc, Raw, undefined)),
+    #{
+        query_id => maps:get(<<"query_id">>, Raw, maps:get(query_id, Raw, <<>>)),
+        status => maps:get(<<"status">>, Raw, maps:get(status, Raw, <<>>)),
+        state => maps:get(<<"state">>, Raw, maps:get(state, Raw, <<>>)),
+        server_state => maps:get(<<"server_state">>, Raw,
+                                 maps:get(server_state, Raw,
+                                          maps:get(<<"state">>, Raw, maps:get(state, Raw, <<>>)))),
+        terminal_state => maps:get(<<"terminal_state">>, Raw, maps:get(terminal_state, Raw, undefined)),
+        committed => maps:get(<<"committed">>, Raw, maps:get(committed, Raw, undefined)),
+        last_commit_epoch => maps:get(<<"last_commit_epoch">>, Raw, maps:get(last_commit_epoch, Raw, undefined)),
+        last_commit_hlc => parse_commit_hlc(HlcRaw),
+        outcome => Outcome,
+        durable => Durable,
+        raw => Raw
+    };
+parse_query_status(_) ->
+    parse_query_status(#{}).
+
+%% @doc Authoritative HLC: durable → outcome → top-level.
+-spec commit_hlc(map()) -> map() | undefined.
+commit_hlc(#{durable := #{last_commit_hlc := Hlc}}) when Hlc =/= undefined -> Hlc;
+commit_hlc(#{outcome := #{last_commit_hlc := Hlc}}) when Hlc =/= undefined -> Hlc;
+commit_hlc(#{last_commit_hlc := Hlc}) -> Hlc;
+commit_hlc(_) -> undefined.
+
+-spec serialization_state(map()) -> string().
+serialization_state(#{durable := #{serialization_state := S}}) when S =/= undefined, S =/= <<>>, S =/= "" ->
+    to_listish(S);
+serialization_state(#{durable := #{serialization := S}}) when S =/= undefined, S =/= <<>>, S =/= "" ->
+    to_listish(S);
+serialization_state(#{outcome := #{serialization_state := S}}) when S =/= undefined, S =/= <<>>, S =/= "" ->
+    to_listish(S);
+serialization_state(#{outcome := #{serialization := S}}) ->
+    to_listish(S);
+serialization_state(_) ->
+    "".
+
+%% @doc Text → embed → ANN retrieve (POST /kit/retrieve_text, 0.64+).
+-spec retrieve_text(client(), binary() | string(), integer(), binary() | string()) -> {ok, map()}.
+retrieve_text(Client, Table, EmbeddingColumn, Text) ->
+    retrieve_text(Client, Table, EmbeddingColumn, Text, #{}).
+
+-spec retrieve_text(client(), binary() | string(), integer(), binary() | string(), map()) -> {ok, map()}.
+retrieve_text(Client, Table, EmbeddingColumn, Text, Opts) ->
+    case to_binary(Table) of
+        <<>> -> error({query_error, <<"table is required">>});
+        _ -> ok
+    end,
+    case to_binary(Text) of
+        <<>> -> error({query_error, <<"text is required">>});
+        _ -> ok
+    end,
+    Payload0 = #{<<"table">> => to_binary(Table),
+                 <<"embedding_column">> => EmbeddingColumn,
+                 <<"text">> => to_binary(Text)},
+    Payload1 = case maps:get(k, Opts, maps:get(<<"k">>, Opts, undefined)) of
+                   undefined -> Payload0;
+                   KVal -> Payload0#{<<"k">> => KVal}
+               end,
+    Payload2 = case maps:get(deadline_ms, Opts, maps:get(<<"deadline_ms">>, Opts, undefined)) of
+                   undefined -> Payload1;
+                   DVal -> Payload1#{<<"deadline_ms">> => DVal}
+               end,
+    Payload = case maps:get(max_work, Opts, maps:get(<<"max_work">>, Opts, undefined)) of
+                  undefined -> Payload2;
+                  MVal -> Payload2#{<<"max_work">> => MVal}
+              end,
+    {ok, Resp} = post(Client, <<"/kit/retrieve_text">>, Payload),
+    case response_json(Resp) of
+        {ok, M} when is_map(M) -> {ok, M};
+        _ -> {ok, #{<<"hits">> => [], <<"provenance">> => #{}}}
+    end.
+
+%% @doc Retained SQL status for durable recovery (GET /queries/{query_id}).
+-spec query_status(client(), binary() | string()) -> {ok, map()}.
+query_status(Client, QueryId) ->
+    case to_binary(QueryId) of
+        <<>> -> error({query_error, <<"query_id is required">>});
+        Q ->
+            Path = <<"/queries/", (url_path_escape(Q))/binary>>,
+            {ok, Resp} = get(Client, Path),
+            case response_json(Resp) of
+                {ok, M} when is_map(M) -> {ok, parse_query_status(M)};
+                _ -> error({query_error, <<"query status response was not a JSON object">>})
+            end
+    end.
+
+%% @doc Request cancellation of a running SQL query.
+-spec cancel_query(client(), binary() | string()) -> {ok, map()}.
+cancel_query(Client, QueryId) ->
+    case to_binary(QueryId) of
+        <<>> -> error({query_error, <<"query_id is required">>});
+        Q ->
+            Path = <<"/queries/", (url_path_escape(Q))/binary, "/cancel">>,
+            {ok, Resp} = post(Client, Path, #{}),
+            case response_json(Resp) of
+                {ok, M} when is_map(M) -> {ok, M};
+                _ -> {ok, #{}}
+            end
+    end.
 
 %% ====================================================================
 %% SQL

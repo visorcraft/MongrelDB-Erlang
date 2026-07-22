@@ -379,3 +379,53 @@ history_retention_forbidden(Parent, Listener) ->
         {error, _} ->
             ok
     end.
+
+%% ── Durable HLC recovery (0.64+) ──────────────────────────────────────────────
+
+durable_query_status_parses_structural_hlc_test() ->
+    Fixture = #{
+        <<"query_id">> => <<"abcdefabcdefabcdefabcdefabcdefab">>,
+        <<"status">> => <<"committed">>,
+        <<"state">> => <<"completed">>,
+        <<"server_state">> => <<"completed">>,
+        <<"terminal_state">> => <<"committed">>,
+        <<"committed">> => true,
+        <<"last_commit_epoch">> => 17,
+        <<"last_commit_hlc">> => #{
+            <<"physical_micros">> => 1700000000000000,
+            <<"logical">> => 3,
+            <<"node_tiebreaker">> => 7
+        },
+        <<"outcome">> => #{
+            <<"committed">> => true,
+            <<"last_commit_epoch">> => 17,
+            <<"last_commit_hlc">> => #{
+                <<"physical_micros">> => 1700000000000000,
+                <<"logical">> => 3,
+                <<"node_tiebreaker">> => 7
+            },
+            <<"serialization">> => <<"succeeded">>,
+            <<"serialization_state">> => <<"succeeded">>,
+            <<"terminal_state">> => <<"committed">>
+        },
+        <<"durable">> => #{
+            <<"committed">> => true,
+            <<"last_commit_epoch">> => 17,
+            <<"last_commit_hlc">> => #{
+                <<"physical_micros">> => 1700000000000000,
+                <<"logical">> => 3,
+                <<"node_tiebreaker">> => 7
+            },
+            <<"serialization">> => <<"succeeded">>,
+            <<"serialization_state">> => <<"succeeded">>,
+            <<"terminal_state">> => <<"committed">>
+        }
+    },
+    Status = mongreldb:parse_query_status(Fixture),
+    ?assertEqual(true, maps:get(committed, Status)),
+    Hlc = mongreldb:commit_hlc(Status),
+    ?assertMatch(#{physical_micros := 1700000000000000, logical := 3, node_tiebreaker := 7}, Hlc),
+    ?assertEqual("succeeded", mongreldb:serialization_state(Status)),
+    ?assertEqual(undefined, mongreldb:parse_commit_hlc(undefined)),
+    ?assertEqual(undefined, mongreldb:parse_commit_hlc(#{})),
+    ?assertEqual(undefined, mongreldb:parse_commit_hlc(#{<<"logical">> => 1})).
